@@ -1617,16 +1617,238 @@ One event triggers multiple handlers:
 user.registered → [SendEmail, SetupAccount, NotifyAdmin, CreateProfile]
 ```
 
-### 2. Sequential Processing
+**What it is:** A single event is broadcast to multiple independent event handlers that all process it simultaneously in parallel.
+
+**When to use:**
+- When you need to perform multiple independent operations in response to a single event
+- When operations don't depend on each other
+- When you want to maximize parallel processing
+
+**Example from our workflow:**
+```typescript
+// One event: user.registered
+await emit({ topic: 'user.registered', data: { userId, name, email } })
+
+// Multiple handlers listening to the same event:
+// 1. SendWelcomeEmail - sends email
+// 2. SetupUserAccount - creates user settings
+// Both run in parallel, independently
+```
+
+**Real-world use cases:**
+- User signs up → [Send welcome email, Create profile, Notify admin, Add to mailing list, Log analytics]
+- Order placed → [Send confirmation email, Update inventory, Process payment, Notify warehouse]
+- New article published → [Send to subscribers, Update search index, Generate social media posts]
+
+**Benefits:**
+- ✅ Parallel execution reduces total processing time
+- ✅ Easy to add new handlers without changing existing code
+- ✅ Handlers are isolated - if one fails, others continue
+- ✅ Scales horizontally - each handler can run on different servers
+
+### 2. Sequential Processing (Event Chaining)
 Events trigger events in sequence:
 ```
 order.created → payment.processed → inventory.updated → shipping.scheduled
 ```
 
-### 3. Saga Pattern
-Coordinate complex transactions:
+**What it is:** Each step in the workflow emits an event that triggers the next step, creating a sequential chain of operations.
+
+**When to use:**
+- When steps must happen in a specific order
+- When each step depends on the output of the previous step
+- When you need to track progress through a multi-stage process
+
+**Example from our workflow:**
+```typescript
+// Step 1: User registers (emits user.registered)
+await emit({ topic: 'user.registered', data: { userId, name, email } })
+
+// Step 2: Email sent (subscribes to user.registered, emits email.sent)
+export const config: EventConfig = {
+  subscribes: ['user.registered'],
+  emits: ['email.sent']
+}
+await emit({ topic: 'email.sent', data: { userId, email, type: 'welcome' } })
+
+// Step 3: Log notification (subscribes to email.sent)
+export const config: EventConfig = {
+  subscribes: ['email.sent'],  // Triggered by previous step
+  emits: []
+}
+
+// Flow: user.registered → email.sent → notification logged
+```
+
+**Real-world use cases:**
+- E-commerce: Order → Payment → Fulfillment → Shipping → Delivery
+- Content publishing: Draft → Review → Approve → Publish → Notify subscribers
+- User onboarding: Register → Verify email → Complete profile → Grant access
+- Data pipeline: Extract → Transform → Validate → Load → Index
+
+**Benefits:**
+- ✅ Clear progression through workflow stages
+- ✅ Each step can be tested independently
+- ✅ Easy to add new steps in the chain
+- ✅ Failed steps can retry without restarting the entire workflow
+
+### 3. Saga Pattern (Distributed Transactions)
+Coordinate complex transactions across multiple services:
 ```
 booking.started → [flight.reserved, hotel.reserved, car.reserved] → booking.confirmed
+                                    ↓ (any fails)
+                            [flight.cancelled, hotel.cancelled, car.cancelled]
+```
+
+**What it is:** A pattern for managing data consistency across distributed services using a sequence of local transactions, with compensating actions to undo changes if any step fails.
+
+**When to use:**
+- When you need to coordinate transactions across multiple services
+- When you can't use traditional ACID transactions
+- When you need to maintain data consistency in distributed systems
+- When failures require rolling back changes across services
+
+**How it works:**
+
+**Forward Flow (Happy Path):**
+```typescript
+// Step 1: Start booking
+await emit({ 
+  topic: 'booking.started', 
+  data: { bookingId, userId, flightId, hotelId, carId } 
+})
+
+// Step 2-4: Parallel reservations (Fan-out)
+// Each service reserves and emits success
+await emit({ topic: 'flight.reserved', data: { bookingId, flightId } })
+await emit({ topic: 'hotel.reserved', data: { bookingId, hotelId } })
+await emit({ topic: 'car.reserved', data: { bookingId, carId } })
+
+// Step 5: All successful - confirm booking
+await emit({ topic: 'booking.confirmed', data: { bookingId } })
+```
+
+**Compensating Flow (Failure Path):**
+```typescript
+// If hotel reservation fails...
+await emit({ 
+  topic: 'hotel.reservation.failed', 
+  data: { bookingId, hotelId, reason: 'No availability' } 
+})
+
+// Trigger compensating actions (rollback)
+await emit({ topic: 'flight.cancellation.requested', data: { bookingId, flightId } })
+await emit({ topic: 'car.cancellation.requested', data: { bookingId, carId } })
+
+// Final state
+await emit({ topic: 'booking.cancelled', data: { bookingId, reason: 'Hotel unavailable' } })
+```
+
+**Implementation Example:**
+```typescript
+// Coordinator Step - tracks saga state
+export const config: EventConfig = {
+  name: 'BookingSagaCoordinator',
+  subscribes: [
+    'booking.started',
+    'flight.reserved', 'flight.reservation.failed',
+    'hotel.reserved', 'hotel.reservation.failed',
+    'car.reserved', 'car.reservation.failed'
+  ],
+  emits: [
+    'booking.confirmed', 
+    'booking.cancelled',
+    'flight.cancellation.requested',
+    'hotel.cancellation.requested',
+    'car.cancellation.requested'
+  ]
+}
+
+export const handler = async (input, { emit, state }) => {
+  const sagaState = await state.get('saga', input.bookingId) || {
+    flight: 'pending',
+    hotel: 'pending',
+    car: 'pending'
+  }
+  
+  // Update state based on event
+  if (input.topic === 'flight.reserved') {
+    sagaState.flight = 'reserved'
+  } else if (input.topic === 'flight.reservation.failed') {
+    sagaState.flight = 'failed'
+    // Trigger compensating actions
+    await emit({ topic: 'hotel.cancellation.requested', data: input })
+    await emit({ topic: 'car.cancellation.requested', data: input })
+    await emit({ topic: 'booking.cancelled', data: input })
+    return
+  }
+  
+  // Check if all steps completed
+  if (sagaState.flight === 'reserved' && 
+      sagaState.hotel === 'reserved' && 
+      sagaState.car === 'reserved') {
+    await emit({ topic: 'booking.confirmed', data: input })
+  }
+  
+  await state.set('saga', input.bookingId, sagaState)
+}
+```
+
+**Real-world use cases:**
+- Travel booking systems (flights + hotels + cars)
+- E-commerce orders (payment + inventory + shipping)
+- Financial transactions (debit one account + credit another)
+- Multi-service registration (create user + create profile + setup permissions)
+
+**Benefits:**
+- ✅ Maintains consistency across distributed services
+- ✅ Handles failures gracefully with compensating actions
+- ✅ No need for distributed locks or two-phase commits
+- ✅ Each service maintains its own database
+- ✅ Services remain loosely coupled
+
+**Key Saga Concepts:**
+
+1. **Compensating Transactions**: Actions that undo a previous operation
+   - If flight is reserved → compensation is flight cancellation
+   - If payment is processed → compensation is refund
+
+2. **Idempotency**: Each step should be safely retryable
+   - Use unique IDs to prevent duplicate processing
+   - Store state to track what's been completed
+
+3. **State Management**: Track progress of the saga
+   - Store which steps completed successfully
+   - Store which steps need compensation
+   - Use state to decide next actions
+
+**Comparison of Patterns:**
+
+| Pattern | Execution | Use Case | Complexity |
+|---------|-----------|----------|------------|
+| **Fan-Out** | Parallel | Independent operations | Low |
+| **Sequential** | Series | Dependent operations | Low |
+| **Saga** | Mixed | Distributed transactions | High |
+
+**Combining Patterns:**
+
+You can combine these patterns in complex workflows:
+
+```
+Order Placed (API)
+    ↓
+order.created (Fan-out)
+    ├→ Send confirmation email
+    ├→ Update analytics
+    └→ Start payment saga (Saga)
+            ↓
+        payment.authorized (Sequential)
+            ↓
+        inventory.reserved (Sequential)
+            ↓
+        shipping.scheduled
+            ↓
+        order.completed
 ```
 
 ---
