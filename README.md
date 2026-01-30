@@ -1079,6 +1079,1313 @@ const task = await prisma.task.findUnique({ where: { id: taskId } })
 
 ---
 
+# AI Research Agent Workflow with Google Gemini
+
+A comprehensive guide to building multi-agent AI systems using Motia's event-driven architecture. This tutorial demonstrates how to orchestrate multiple specialized AI agents that work together sequentially to complete complex research tasks using Google Gemini.
+
+## What You'll Build
+
+An AI-powered research system where multiple agents collaborate:
+- 🎯 **Planning Agent** - Creates a structured research plan
+- 🔍 **Research Agent** - Conducts research on each topic
+- 📊 **Analysis Agent** - Analyzes all findings
+- 📝 **Synthesis Agent** - Generates a comprehensive report
+
+## Architecture Overview
+
+### Sequential Agent Pipeline
+
+```
+POST /research
+     ↓ (emits: research.started)
+Planning Agent → Creates research plan
+     ↓ (emits: plan.completed)
+Research Agent → Conducts research (5 topics)
+     ↓ (emits: research.completed)
+Analysis Agent → Analyzes findings
+     ↓ (emits: analysis.completed)
+Synthesis Agent → Generates final report
+     ↓ (emits: report.completed)
+Report Logger → Logs completion
+     ↓
+GET /research/:id/status → Check status
+```
+
+### Key Concepts
+
+**Event-Driven Architecture**: Each agent subscribes to the previous agent's completion event, creating a loosely coupled pipeline.
+
+**State Management**: All intermediate results (plan, findings, analysis) are stored in Redis for retrieval and debugging.
+
+**Retry Logic**: Built-in exponential backoff handles API rate limits automatically.
+
+**Parallel Processing**: Multiple agents can subscribe to the same event for parallel execution (though this example is sequential).
+
+## Table of Contents
+
+1. [Prerequisites](#prerequisites-1)
+2. [Installation & Setup](#installation--setup-1)
+3. [Project Structure](#project-structure-1)
+4. [Implementation Steps](#implementation-steps-1)
+5. [Understanding Event Flow](#understanding-event-flow)
+6. [Testing the Workflow](#testing-the-workflow-1)
+7. [Troubleshooting](#troubleshooting-1)
+8. [Next Steps](#next-steps-1)
+
+## Prerequisites
+
+Before you begin, ensure you have:
+- **Node.js** (v18 or higher)
+- **npm** or **pnpm**
+- **Redis** running locally (Motia can use in-memory Redis)
+- **Google Gemini API key** ([Get one here](https://aistudio.google.com/app/apikey))
+
+## Installation & Setup
+
+### Step 1: Create a New Motia Project
+
+```bash
+# Create a new project
+npx motia@latest create ai-research-agent --template starter-typescript
+
+# Navigate to your project
+cd ai-research-agent
+```
+
+### Step 2: Install Google Generative AI SDK
+
+```bash
+npm install @google/generative-ai
+```
+
+### Step 3: Configure Environment Variables
+
+Create a `.env` file in your project root:
+
+```bash
+# Google Gemini API Key
+GOOGLE_API_KEY=your_api_key_here
+
+# Server Configuration
+PORT=3000
+
+# Redis Configuration (optional - uses in-memory if not specified)
+REDIS_HOST=localhost
+REDIS_PORT=6379
+```
+
+**Get Your API Key:**
+1. Visit [Google AI Studio](https://aistudio.google.com/app/apikey)
+2. Click "Create API Key"
+3. Copy and paste into `.env`
+
+### Step 4: Start the Development Server
+
+```bash
+npm run dev
+```
+
+The server will start at `http://localhost:3000` with hot-reload enabled.
+
+## Project Structure
+
+```
+ai-research-agent/
+├── src/
+│   └── research/                         # Research workflow
+│       ├── research-api.step.ts          # API: Start research
+│       ├── planning-agent.step.ts        # Agent: Create plan
+│       ├── research-agent.step.ts        # Agent: Conduct research
+│       ├── analysis-agent.step.ts        # Agent: Analyze findings
+│       ├── synthesis-agent.step.ts       # Agent: Generate report
+│       ├── report-logger.step.ts         # Event: Log completion
+│       └── status-api.step.ts            # API: Check status
+│   └── utils/
+│       └── retry-helper.ts               # Retry logic for rate limits
+├── motia.config.ts                       # Motia configuration
+├── package.json
+├── tsconfig.json
+└── .env                                  # Environment variables
+```
+
+## Implementation Steps
+
+### Step 1: Create the Retry Helper Utility
+
+First, create a utility to handle API rate limits with exponential backoff.
+
+**Create `src/utils/retry-helper.ts`:**
+
+```typescript
+/**
+ * Retry helper with exponential backoff for API calls
+ * Handles rate limiting and transient errors
+ */
+
+export interface RetryOptions {
+  maxRetries?: number
+  initialDelay?: number
+  maxDelay?: number
+  backoffMultiplier?: number
+}
+
+export async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  options: RetryOptions = {}
+): Promise<T> {
+  const {
+    maxRetries = 5,
+    initialDelay = 1000,
+    maxDelay = 60000,
+    backoffMultiplier = 2,
+  } = options
+
+  let lastError: Error | undefined
+  let delay = initialDelay
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn()
+    } catch (error: any) {
+      lastError = error
+
+      // Check if error is retryable (rate limit or server error)
+      const isRateLimitError = error.message?.includes('429') || 
+                               error.message?.includes('quota') ||
+                               error.message?.includes('rate limit')
+      const isServerError = error.message?.includes('500') || 
+                           error.message?.includes('503')
+
+      if (!isRateLimitError && !isServerError) {
+        throw error // Non-retryable error
+      }
+
+      if (attempt === maxRetries) {
+        throw new Error(
+          `Max retries (${maxRetries}) reached. Last error: ${error.message}`
+        )
+      }
+
+      // Extract retry delay from error if available
+      const retryAfterMatch = error.message?.match(/retry in (\d+(?:\.\d+)?)/i)
+      let waitTime = delay
+
+      if (retryAfterMatch) {
+        waitTime = Math.ceil(parseFloat(retryAfterMatch[1]) * 1000)
+      }
+
+      waitTime = Math.min(waitTime, maxDelay)
+
+      console.log(
+        `[RetryHelper] Attempt ${attempt + 1}/${maxRetries} failed. ` +
+        `Retrying in ${waitTime}ms...`
+      )
+
+      await new Promise(resolve => setTimeout(resolve, waitTime))
+      delay = Math.min(delay * backoffMultiplier, maxDelay)
+    }
+  }
+
+  throw lastError || new Error('Retry failed with unknown error')
+}
+```
+
+### Step 2: Create the Research API Endpoint
+
+This endpoint receives research requests and starts the workflow.
+
+**Create `src/research/research-api.step.ts`:**
+
+```typescript
+import { ApiRouteConfig, Handlers } from 'motia'
+import { z } from 'zod'
+
+export const config: ApiRouteConfig = {
+  type: 'api',
+  name: 'ResearchAPI',
+  description: 'Start a new AI research workflow',
+  method: 'POST',
+  path: '/research',
+  flows: ['ai-research-agent'],
+  emits: ['research.started'],
+  
+  bodySchema: z.object({
+    query: z.string().min(10),
+    depth: z.enum(['quick', 'standard', 'deep']).default('standard'),
+  }),
+  
+  responseSchema: {
+    201: z.object({
+      researchId: z.string(),
+      query: z.string(),
+      depth: z.string(),
+      status: z.string(),
+      progress: z.object({
+        planning: z.string(),
+        research: z.string(),
+        analysis: z.string(),
+        synthesis: z.string(),
+      }),
+    }),
+  },
+}
+
+export const handler: Handlers['ResearchAPI'] = async (req, { emit, logger, state }) => {
+  const { query, depth } = req.body
+  const researchId = `research-${Date.now()}`
+
+  logger.info('[ResearchAPI] Starting research', { researchId, query, depth })
+
+  // Initialize research state
+  const initialState = {
+    researchId,
+    query,
+    depth,
+    status: 'pending',
+    progress: {
+      planning: 'pending',
+      research: 'pending',
+      analysis: 'pending',
+      synthesis: 'pending',
+    },
+    createdAt: new Date().toISOString(),
+  }
+
+  await state.set('research', researchId, initialState)
+
+  // Emit event to trigger planning agent
+  await emit({
+    topic: 'research.started',
+    data: { researchId, query, depth },
+  })
+
+  logger.info('[ResearchAPI] Research workflow started', { researchId })
+
+  return {
+    status: 201,
+    body: initialState,
+  }
+}
+```
+
+**Key Points:**
+- `emits: ['research.started']` - Declares this step emits events
+- `emit()` - Triggers the next agent in the pipeline
+- `state.set()` - Stores research state in Redis
+- Returns immediately while agents process asynchronously
+
+### Step 3: Create the Planning Agent
+
+The first agent that creates a research plan using Gemini.
+
+**Create `src/research/planning-agent.step.ts`:**
+
+```typescript
+import { EventConfig, Handlers } from 'motia'
+import { z } from 'zod'
+import { GoogleGenerativeAI } from '@google/generative-ai'
+import { retryWithBackoff } from '../utils/retry-helper'
+
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || '')
+
+export const config = {
+  type: 'event',
+  name: 'PlanningAgent',
+  description: 'AI agent that creates a research plan',
+  flows: ['ai-research-agent'],
+  subscribes: ['research.started'],
+  emits: ['plan.completed'],
+  
+  input: z.object({
+    researchId: z.string(),
+    query: z.string(),
+    depth: z.string(),
+  }),
+} as const
+
+export const handler: Handlers['PlanningAgent'] = async (input, { emit, logger, state }) => {
+  const { researchId, query, depth } = input
+
+  logger.info('[PlanningAgent] Creating research plan', { researchId, query })
+
+  try {
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+
+    const prompt = `You are a research planning AI agent. Create a comprehensive research plan for the following query:
+
+"${query}"
+
+Research depth: ${depth}
+
+Provide a structured plan in JSON format:
+{
+  "research_topics": ["topic1", "topic2", "topic3"],
+  "key_questions": ["question1", "question2", "question3"],
+  "approach": "description of how research will be conducted",
+  "estimated_time": 5
+}
+
+Respond ONLY with valid JSON, no markdown formatting.`
+
+    const result = await retryWithBackoff(
+      async () => await model.generateContent(prompt),
+      { maxRetries: 5, initialDelay: 2000 }
+    )
+    
+    const text = result.response.text()
+    const cleanText = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+    const plan = JSON.parse(cleanText)
+
+    logger.info('[PlanningAgent] Plan created', { 
+      researchId, 
+      topics: plan.research_topics.length 
+    })
+
+    // Update research state
+    const researchData = await state.get('research', researchId) as any
+    await state.set('research', researchId, {
+      ...researchData,
+      plan,
+      progress: {
+        ...researchData.progress,
+        planning: 'completed',
+      },
+    })
+
+    // Emit event to trigger research agent
+    await emit({
+      topic: 'plan.completed',
+      data: {
+        researchId,
+        query,
+        depth,
+        plan,
+      },
+    })
+
+    logger.info('[PlanningAgent] Plan emitted for research', { researchId })
+
+  } catch (error: any) {
+    logger.error('[PlanningAgent] Error creating plan', { 
+      researchId, 
+      error: error.message 
+    })
+
+    const researchData = await state.get('research', researchId) as any
+    await state.set('research', researchId, {
+      ...researchData,
+      progress: {
+        ...researchData.progress,
+        planning: 'failed',
+      },
+      error: error.message,
+    })
+  }
+}
+```
+
+**Key Points:**
+- `type: 'event'` - Marks this as an event handler
+- `subscribes: ['research.started']` - Listens for this event
+- `retryWithBackoff()` - Handles API rate limits
+- Updates state with results before emitting next event
+
+### Step 4: Create the Research Agent
+
+This agent conducts research on each topic from the plan.
+
+**Create `src/research/research-agent.step.ts`:**
+
+```typescript
+import { EventConfig, Handlers } from 'motia'
+import { z } from 'zod'
+import { GoogleGenerativeAI } from '@google/generative-ai'
+import { retryWithBackoff } from '../utils/retry-helper'
+
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || '')
+
+export const config = {
+  type: 'event',
+  name: 'ResearchAgent',
+  description: 'AI agent that conducts research based on the plan',
+  flows: ['ai-research-agent'],
+  subscribes: ['plan.completed'],
+  emits: ['research.completed'],
+  
+  input: z.object({
+    researchId: z.string(),
+    query: z.string(),
+    depth: z.string(),
+    plan: z.object({
+      research_topics: z.array(z.string()),
+      key_questions: z.array(z.string()),
+      approach: z.string(),
+      estimated_time: z.number().optional(),
+    }),
+  }),
+} as const
+
+export const handler: Handlers['ResearchAgent'] = async (input, { emit, logger, state }) => {
+  const { researchId, query, plan } = input
+
+  logger.info('[ResearchAgent] Starting research', { 
+    researchId, 
+    topics: plan.research_topics.length 
+  })
+
+  try {
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+    const findings: any[] = []
+
+    // Research each topic sequentially
+    for (const topic of plan.research_topics) {
+      logger.info('[ResearchAgent] Researching topic', { researchId, topic })
+
+      const prompt = `You are a research AI agent. Research the following topic in the context of this query:
+
+Main Query: "${query}"
+Research Topic: "${topic}"
+
+Provide comprehensive findings in JSON format:
+{
+  "topic": "${topic}",
+  "summary": "2-3 paragraph summary of findings",
+  "key_points": ["point1", "point2", "point3"],
+  "sources": ["source1", "source2"],
+  "confidence": 0.85
+}
+
+Respond ONLY with valid JSON, no markdown formatting.`
+
+      const result = await retryWithBackoff(
+        async () => await model.generateContent(prompt),
+        { maxRetries: 5, initialDelay: 2000 }
+      )
+      
+      const text = result.response.text()
+      const cleanText = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+      const finding = JSON.parse(cleanText)
+      
+      findings.push(finding)
+
+      // Add delay between API calls to respect rate limits
+      await new Promise(resolve => setTimeout(resolve, 2000))
+    }
+
+    logger.info('[ResearchAgent] Research completed', { 
+      researchId, 
+      findingsCount: findings.length 
+    })
+
+    // Update research state
+    const researchData = await state.get('research', researchId) as any
+    await state.set('research', researchId, {
+      ...researchData,
+      findings,
+      progress: {
+        ...researchData.progress,
+        research: 'completed',
+      },
+    })
+
+    // Emit event to trigger analysis agent
+    await emit({
+      topic: 'research.completed',
+      data: {
+        researchId,
+        query,
+        plan,
+        findings,
+      },
+    })
+
+    logger.info('[ResearchAgent] Findings emitted for analysis', { researchId })
+
+  } catch (error: any) {
+    logger.error('[ResearchAgent] Error during research', { 
+      researchId, 
+      error: error.message 
+    })
+
+    const researchData = await state.get('research', researchId) as any
+    await state.set('research', researchId, {
+      ...researchData,
+      progress: {
+        ...researchData.progress,
+        research: 'failed',
+      },
+      error: error.message,
+    })
+  }
+}
+```
+
+**Key Points:**
+- Loops through each research topic
+- 2-second delay between API calls prevents rate limiting
+- Each finding is stored in the findings array
+- State is updated before emitting to next agent
+
+### Step 5: Create the Analysis Agent
+
+This agent analyzes all research findings.
+
+**Create `src/research/analysis-agent.step.ts`:**
+
+```typescript
+import { EventConfig, Handlers } from 'motia'
+import { z } from 'zod'
+import { GoogleGenerativeAI } from '@google/generative-ai'
+import { retryWithBackoff } from '../utils/retry-helper'
+
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || '')
+
+export const config = {
+  type: 'event',
+  name: 'AnalysisAgent',
+  description: 'AI agent that analyzes research findings',
+  flows: ['ai-research-agent'],
+  subscribes: ['research.completed'],
+  emits: ['analysis.completed'],
+  
+  input: z.object({
+    researchId: z.string(),
+    query: z.string(),
+    findings: z.array(z.any()),
+  }),
+} as const
+
+export const handler: Handlers['AnalysisAgent'] = async (input, { emit, logger, state }) => {
+  const { researchId, query, findings } = input
+
+  logger.info('[AnalysisAgent] Analyzing findings', { 
+    researchId, 
+    findingsCount: findings.length 
+  })
+
+  try {
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+
+    const findingsSummary = findings
+      .map(f => `Topic: ${f.topic}\nSummary: ${f.summary}`)
+      .join('\n\n')
+
+    const prompt = `You are an analysis AI agent. Analyze the following research findings:
+
+Original Query: "${query}"
+
+Findings:
+${findingsSummary}
+
+Provide a comprehensive analysis in JSON format:
+{
+  "overall_assessment": "2-3 paragraph analysis of all findings",
+  "key_insights": ["insight1", "insight2", "insight3"],
+  "patterns_identified": ["pattern1", "pattern2"],
+  "gaps": ["gap1", "gap2"],
+  "confidence_score": 0.85,
+  "recommendations": ["rec1", "rec2"]
+}
+
+Respond ONLY with valid JSON, no markdown formatting.`
+
+    const result = await retryWithBackoff(
+      async () => await model.generateContent(prompt),
+      { maxRetries: 5, initialDelay: 2000 }
+    )
+    
+    const text = result.response.text()
+    const cleanText = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+    const analysis = JSON.parse(cleanText)
+
+    logger.info('[AnalysisAgent] Analysis completed', { 
+      researchId, 
+      insights: analysis.key_insights?.length 
+    })
+
+    // Update research state
+    const researchData = await state.get('research', researchId) as any
+    await state.set('research', researchId, {
+      ...researchData,
+      analysis,
+      progress: {
+        ...researchData.progress,
+        analysis: 'completed',
+      },
+    })
+
+    // Emit event to trigger synthesis agent
+    await emit({
+      topic: 'analysis.completed',
+      data: {
+        researchId,
+        query,
+        findings,
+        analysis,
+      },
+    })
+
+    logger.info('[AnalysisAgent] Analysis emitted for synthesis', { researchId })
+
+  } catch (error: any) {
+    logger.error('[AnalysisAgent] Error during analysis', { 
+      researchId, 
+      error: error.message 
+    })
+
+    const researchData = await state.get('research', researchId) as any
+    await state.set('research', researchId, {
+      ...researchData,
+      progress: {
+        ...researchData.progress,
+        analysis: 'failed',
+      },
+      error: error.message,
+    })
+  }
+}
+```
+
+### Step 6: Create the Synthesis Agent
+
+The final agent that generates a comprehensive report.
+
+**Create `src/research/synthesis-agent.step.ts`:**
+
+```typescript
+import { EventConfig, Handlers } from 'motia'
+import { z } from 'zod'
+import { GoogleGenerativeAI } from '@google/generative-ai'
+import { retryWithBackoff } from '../utils/retry-helper'
+
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || '')
+
+export const config = {
+  type: 'event',
+  name: 'SynthesisAgent',
+  description: 'AI agent that synthesizes final research report',
+  flows: ['ai-research-agent'],
+  subscribes: ['analysis.completed'],
+  emits: ['report.completed'],
+  
+  input: z.object({
+    researchId: z.string(),
+    query: z.string(),
+    findings: z.array(z.any()),
+    analysis: z.any(),
+  }),
+} as const
+
+export const handler: Handlers['SynthesisAgent'] = async (input, { emit, logger, state }) => {
+  const { researchId, query, findings, analysis } = input
+
+  logger.info('[SynthesisAgent] Synthesizing report', { researchId })
+
+  try {
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+
+    // Type assertion for analysis
+    const analysisData = analysis as {
+      overall_assessment: string
+      key_insights?: string[]
+      patterns_identified?: string[]
+      recommendations?: string[]
+    }
+
+    const context = `
+Query: ${query}
+Assessment: ${analysisData.overall_assessment}
+Insights: ${analysisData.key_insights?.join(', ')}
+Patterns: ${analysisData.patterns_identified?.join(', ')}
+Recommendations: ${analysisData.recommendations?.join(', ')}
+Number of findings: ${findings.length}
+`
+
+    const prompt = `You are a synthesis AI agent. Create a comprehensive, well-structured research report based on the analysis:
+
+${context}
+
+Generate a complete research report in JSON format:
+{
+  "title": "Research Report: [Topic]",
+  "executive_summary": "2-3 paragraph summary",
+  "methodology": "Brief description of research approach",
+  "findings_summary": "Comprehensive summary of all findings",
+  "key_takeaways": ["takeaway1", "takeaway2", "takeaway3"],
+  "conclusions": "Final conclusions paragraph",
+  "next_steps": ["step1", "step2", "step3"],
+  "confidence_level": "high/medium/low",
+  "generated_at": "${new Date().toISOString()}"
+}
+
+Respond ONLY with valid JSON, no markdown formatting.`
+
+    const result = await retryWithBackoff(
+      async () => await model.generateContent(prompt),
+      { maxRetries: 5, initialDelay: 2000 }
+    )
+    
+    const text = result.response.text()
+    const cleanText = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+    const report = JSON.parse(cleanText)
+
+    logger.info('[SynthesisAgent] Report generated', { researchId })
+
+    // Update research state with final report
+    const researchData = await state.get('research', researchId) as any
+    await state.set('research', researchId, {
+      ...researchData,
+      report,
+      status: 'completed',
+      progress: {
+        ...researchData.progress,
+        synthesis: 'completed',
+      },
+      completedAt: new Date().toISOString(),
+    })
+
+    // Emit final completion event
+    await emit({
+      topic: 'report.completed',
+      data: {
+        researchId,
+        report,
+      },
+    })
+
+    logger.info('[SynthesisAgent] Report completed and emitted', { researchId })
+
+  } catch (error: any) {
+    logger.error('[SynthesisAgent] Error generating report', { 
+      researchId, 
+      error: error.message 
+    })
+
+    const researchData = await state.get('research', researchId) as any
+    await state.set('research', researchId, {
+      ...researchData,
+      status: 'failed',
+      progress: {
+        ...researchData.progress,
+        synthesis: 'failed',
+      },
+      error: error.message,
+    })
+  }
+}
+```
+
+### Step 7: Create the Report Logger
+
+A simple event handler to log workflow completion.
+
+**Create `src/research/report-logger.step.ts`:**
+
+```typescript
+import { EventConfig, Handlers } from 'motia'
+import { z } from 'zod'
+
+export const config = {
+  type: 'event',
+  name: 'ReportLogger',
+  description: 'Logs research report completion',
+  flows: ['ai-research-agent'],
+  subscribes: ['report.completed'],
+  
+  input: z.object({
+    researchId: z.string(),
+    report: z.any(),
+  }),
+} as const
+
+export const handler: Handlers['ReportLogger'] = async (input, { logger }) => {
+  const { researchId, report } = input
+
+  logger.info('[ReportLogger] Research workflow completed!', { 
+    researchId,
+    title: report.title,
+    confidence: report.confidence_level,
+  })
+}
+```
+
+### Step 8: Create the Status API Endpoint
+
+An endpoint to check research progress and retrieve results.
+
+**Create `src/research/status-api.step.ts`:**
+
+```typescript
+import { ApiRouteConfig, Handlers } from 'motia'
+import { z } from 'zod'
+
+export const config: ApiRouteConfig = {
+  type: 'api',
+  name: 'ResearchStatusAPI',
+  description: 'Get research workflow status',
+  method: 'GET',
+  path: '/research/:researchId/status',
+  flows: ['ai-research-agent'],
+  
+  pathParamsSchema: z.object({
+    researchId: z.string(),
+  }),
+  
+  responseSchema: {
+    200: z.object({
+      researchId: z.string(),
+      status: z.string(),
+      progress: z.object({
+        planning: z.string(),
+        research: z.string(),
+        analysis: z.string(),
+        synthesis: z.string(),
+      }),
+      report: z.any().optional(),
+      error: z.string().optional(),
+    }),
+    404: z.object({
+      error: z.string(),
+    }),
+  },
+}
+
+export const handler: Handlers['ResearchStatusAPI'] = async (req, { logger, state }) => {
+  const { researchId } = req.pathParams
+
+  logger.info('[ResearchStatusAPI] Checking status', { researchId })
+
+  const researchData = await state.get('research', researchId) as any
+
+  if (!researchData) {
+    return {
+      status: 404,
+      body: { error: 'Research not found' },
+    }
+  }
+
+  return {
+    status: 200,
+    body: researchData,
+  }
+}
+```
+
+### Step 9: Verify Your Configuration
+
+Ensure your `motia.config.ts` includes all necessary plugins:
+
+```typescript
+import { defineConfig } from '@motiadev/core'
+import endpointPlugin from '@motiadev/plugin-endpoint/plugin'
+import logsPlugin from '@motiadev/plugin-logs/plugin'
+import observabilityPlugin from '@motiadev/plugin-observability/plugin'
+import statesPlugin from '@motiadev/plugin-states/plugin'
+import bullmqPlugin from '@motiadev/plugin-bullmq/plugin'
+
+export default defineConfig({
+  plugins: [
+    observabilityPlugin,
+    statesPlugin,
+    endpointPlugin,
+    logsPlugin,
+    bullmqPlugin
+  ],
+})
+```
+
+## Understanding Event Flow
+
+### Event Emission and Subscription
+
+**Emitting Events:**
+```typescript
+await emit({
+  topic: 'plan.completed',
+  data: { researchId, query, plan }
+})
+```
+
+**Subscribing to Events:**
+```typescript
+export const config = {
+  type: 'event',
+  subscribes: ['plan.completed'],
+  // ...
+}
+```
+
+### Sequential vs Parallel Processing
+
+**Sequential (This Tutorial):**
+- Each agent waits for previous completion
+- Events create a chain: A → B → C → D
+
+**Parallel (Alternative):**
+- Multiple agents subscribe to same event
+- All process simultaneously
+
+```typescript
+// Both agents trigger on same event
+config1 = { subscribes: ['user.created'], ... }
+config2 = { subscribes: ['user.created'], ... }
+```
+
+### State Management Pattern
+
+```typescript
+// Read state
+const data = await state.get('namespace', 'key')
+
+// Write state
+await state.set('namespace', 'key', value)
+
+// Update state
+const current = await state.get('research', researchId)
+await state.set('research', researchId, {
+  ...current,
+  newField: 'value'
+})
+```
+
+## Testing the Workflow
+
+### Step 1: Start a Research Task
+
+```bash
+curl -X POST http://localhost:3000/research \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "What are the benefits and challenges of microservices architecture?",
+    "depth": "standard"
+  }' | jq .
+```
+
+**Response:**
+```json
+{
+  "researchId": "research-1706435232000",
+  "query": "What are the benefits and challenges of microservices architecture?",
+  "depth": "standard",
+  "status": "pending",
+  "progress": {
+    "planning": "pending",
+    "research": "pending",
+    "analysis": "pending",
+    "synthesis": "pending"
+  }
+}
+```
+
+### Step 2: Monitor Progress (Wait 30-60 seconds)
+
+```bash
+# Replace with your actual researchId
+curl http://localhost:3000/research/research-1706435232000/status | jq .
+```
+
+**Response (In Progress):**
+```json
+{
+  "researchId": "research-1706435232000",
+  "status": "pending",
+  "progress": {
+    "planning": "completed",
+    "research": "completed",
+    "analysis": "in-progress",
+    "synthesis": "pending"
+  }
+}
+```
+
+**Response (Completed):**
+```json
+{
+  "researchId": "research-1706435232000",
+  "status": "completed",
+  "progress": {
+    "planning": "completed",
+    "research": "completed",
+    "analysis": "completed",
+    "synthesis": "completed"
+  },
+  "report": {
+    "title": "Research Report: Microservices Architecture",
+    "executive_summary": "...",
+    "key_takeaways": [...],
+    "conclusions": "...",
+    "confidence_level": "high"
+  }
+}
+```
+
+### Step 3: Watch Real-Time Logs
+
+In your terminal running `npm run dev`, you'll see:
+
+```
+[INFO] ResearchAPI - Starting research
+[INFO] PlanningAgent - Creating research plan
+[INFO] PlanningAgent - Plan created (5 topics)
+[INFO] ResearchAgent - Starting research
+[INFO] ResearchAgent - Researching topic: Benefits of Microservices
+[INFO] ResearchAgent - Researching topic: Challenges of Microservices
+[INFO] ResearchAgent - Research completed (5 findings)
+[INFO] AnalysisAgent - Analyzing findings
+[INFO] AnalysisAgent - Analysis completed
+[INFO] SynthesisAgent - Synthesizing report
+[INFO] SynthesisAgent - Report generated
+[INFO] ReportLogger - Research workflow completed!
+```
+
+## Using the Motia Workbench
+
+### Visual Workflow
+
+1. Open http://localhost:3000 in your browser
+2. Select **"ai-research-agent"** from the flow dropdown
+3. View the complete workflow diagram:
+   - Research API → Planning Agent → Research Agent → Analysis Agent → Synthesis Agent → Report Logger
+
+### Interactive Testing
+
+1. Click on **"Endpoints"** tab
+2. Find **POST /research**
+3. Click to open the test interface
+4. Fill in the request body:
+   ```json
+   {
+     "query": "Your research question here",
+     "depth": "standard"
+   }
+   ```
+5. Click **"Send Request"**
+6. View response in real-time
+
+### Monitoring Features
+
+**Logs Tab:**
+- Real-time log streaming
+- Filter by agent name
+- Search through logs
+
+**States Tab:**
+- View all stored research states
+- Inspect intermediate results (plans, findings, analysis)
+- Debug workflow issues
+
+**Tracing Tab:**
+- Trace complete request flow
+- See timing for each agent
+- Identify bottlenecks
+
+## Troubleshooting
+
+### API Rate Limits (429 Error)
+
+**Problem:**
+```
+Error: [429 Too Many Requests] You exceeded your current quota
+```
+
+**Solution:**
+The retry helper automatically handles this! It:
+- Extracts retry delay from error message
+- Waits the specified time
+- Retries up to 5 times
+
+You can also:
+- Increase delays in `research-agent.step.ts` (currently 2s)
+- Reduce number of research topics
+- Upgrade to paid Gemini API tier
+
+### Events Not Triggering
+
+**Problem:** Next agent doesn't run after previous completion
+
+**Checklist:**
+1. Verify `subscribes` array matches `emits` array
+2. Check logs for errors in previous agent
+3. Ensure BullMQ plugin is configured
+4. Restart dev server
+
+### State Not Persisting
+
+**Problem:** Can't retrieve research data
+
+**Solution:**
+1. Check Redis is running: `redis-cli ping`
+2. Verify states plugin in `motia.config.ts`
+3. Check namespace and key match between set/get
+
+### TypeScript Errors
+
+**Problem:** Type errors in handlers
+
+**Solution:**
+```bash
+# Regenerate types after adding new steps
+npm run generate-types
+```
+
+### Gemini Model Not Found
+
+**Problem:**
+```
+Error: models/gemini-pro not found
+```
+
+**Solution:**
+Update all agents to use `gemini-2.5-flash`:
+```typescript
+const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+```
+
+## Advanced Patterns
+
+### Adding Parallel Processing
+
+Make research topics process in parallel:
+
+```typescript
+// Instead of sequential loop
+const findingsPromises = plan.research_topics.map(topic =>
+  processTopicWithRetry(topic, query, model, logger)
+)
+const findings = await Promise.all(findingsPromises)
+```
+
+### Adding Conditional Logic
+
+Skip agents based on conditions:
+
+```typescript
+// In planning agent
+if (depth === 'quick') {
+  await emit({ topic: 'research.completed', data: { /* ... */ } })
+  // Skip research agent
+} else {
+  await emit({ topic: 'plan.completed', data: { /* ... */ } })
+}
+```
+
+### Adding Error Recovery
+
+Implement fallback behavior:
+
+```typescript
+try {
+  const result = await model.generateContent(prompt)
+  // Process result
+} catch (error) {
+  // Emit error event for alternative handler
+  await emit({
+    topic: 'agent.failed',
+    data: { agentName, error, retryable: true }
+  })
+}
+```
+
+### Streaming Responses
+
+Stream results as they're generated:
+
+```typescript
+// In synthesis agent
+const stream = await model.generateContentStream(prompt)
+for await (const chunk of stream) {
+  await emit({
+    topic: 'report.chunk',
+    data: { researchId, chunk: chunk.text() }
+  })
+}
+```
+
+## Next Steps
+
+### 1. Add Database Persistence
+
+Replace in-memory state with PostgreSQL/MongoDB:
+
+```typescript
+import { PrismaClient } from '@prisma/client'
+const prisma = new PrismaClient()
+
+// Instead of state.set()
+await prisma.research.create({ data: researchData })
+```
+
+### 2. Add Authentication
+
+Protect endpoints with auth middleware:
+
+```typescript
+export const config: ApiRouteConfig = {
+  // ...
+  middleware: [authMiddleware]
+}
+```
+
+### 3. Add Caching
+
+Cache Gemini responses to reduce API calls:
+
+```typescript
+const cacheKey = `gemini:${hash(prompt)}`
+let result = await cache.get(cacheKey)
+if (!result) {
+  result = await model.generateContent(prompt)
+  await cache.set(cacheKey, result, { ttl: 3600 })
+}
+```
+
+### 4. Add Web Interface
+
+Create a UI to display research reports:
+
+```typescript
+// Add UI step
+export const config: UIConfig = {
+  type: 'ui',
+  path: '/research/:id',
+  // Render research results
+}
+```
+
+### 5. Deploy to Production
+
+```bash
+# Build for production
+npm run build
+
+# Start production server
+npm start
+```
+
+## Resources
+
+- [Motia Documentation](https://motia.dev/docs)
+- [Google Gemini API Docs](https://ai.google.dev/gemini-api/docs)
+- [Event-Driven Architecture Guide](https://motia.dev/docs/concepts/overview)
+- [API Reference](https://motia.dev/docs/api-reference)
+- [Motia Examples](https://github.com/motiadev/motia-examples)
+
+## Summary
+
+You've successfully built a multi-agent AI system with Motia! You learned:
+
+✅ How to orchestrate multiple AI agents sequentially  
+✅ How to use event-driven architecture for decoupled workflows  
+✅ How to integrate Google Gemini for AI processing  
+✅ How to handle API rate limits with retry logic  
+✅ How to manage state across async operations  
+✅ How to monitor workflows with the Motia Workbench  
+✅ How to build scalable, production-ready AI systems  
+
+This foundation can be extended with parallel processing, conditional logic, error recovery, streaming, and much more!
+
+---
+
 # Event-Driven User Registration Workflow
 
 A complete step-by-step guide to building event-driven workflows using the Motia framework. This tutorial demonstrates how to create a user registration system that automatically triggers welcome emails, account setup, and notification logging through events.
