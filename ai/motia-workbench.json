@@ -1,0 +1,49 @@
+[
+  {
+    "id": "hello-world-flow",
+    "config": {
+      "src/hello/process-greeting.step.ts": {
+        "x": 409,
+        "y": 44
+      },
+      "src/hello/hello-api.step.ts": {
+        "x": 0,
+        "y": 0,
+        "sourceHandlePosition": "right"
+      }
+    }
+  },
+  {
+    "id": "ai-research-agent",
+    "config": {
+      "src/research/synthesis-agent.step.ts": {
+        "x": 1409,
+        "y": -22
+      },
+      "src/research/status-api.step.ts": {
+        "x": 0,
+        "y": -18
+      },
+      "src/research/research-api.step.ts": {
+        "x": 23,
+        "y": 224
+      },
+      "src/research/research-agent.step.ts": {
+        "x": 487,
+        "y": 278
+      },
+      "src/research/report-logger.step.ts": {
+        "x": 1161,
+        "y": 346
+      },
+      "src/research/planning-agent.step.ts": {
+        "x": 391,
+        "y": 37
+      },
+      "src/research/analysis-agent.step.ts": {
+        "x": 904,
+        "y": 27
+      }
+    }
+  }
+]
