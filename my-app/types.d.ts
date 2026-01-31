@@ -17,8 +17,6 @@ declare module 'motia' {
     'GetTaskById': ApiRouteHandler<Record<string, unknown>, ApiResponse<200, { id: string; title: string; description: string; status: 'pending' | 'in-progress' | 'completed'; createdAt: string; updatedAt: string }> | ApiResponse<404, { error: string }>, never>
     'DeleteTask': ApiRouteHandler<Record<string, unknown>, ApiResponse<404, { error: string }>, never>
     'CreateTask': ApiRouteHandler<{ title: string; description: string; status: 'pending' | 'in-progress' | 'completed' }, ApiResponse<201, { id: string; title: string; description: string; status: 'pending' | 'in-progress' | 'completed'; createdAt: string; updatedAt: string }>, never>
-    'ProcessGreeting': EventHandler<{ timestamp: string; appName: string; greetingPrefix: string; requestId: string }, never>
-    'HelloAPI': ApiRouteHandler<Record<string, unknown>, ApiResponse<200, { message: string; status: string; appName: string }>, { topic: 'process-greeting'; data: { timestamp: string; appName: string; greetingPrefix: string; requestId: string } }>
   }
     
 }
