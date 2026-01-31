@@ -1,20 +1,385 @@
-# Motia Framework - Complete Tutorials
+# Motia Framework - Complete Tutorial Repository
 
-This repository contains comprehensive tutorials for building applications with the Motia framework. Learn how to create REST APIs with CRUD operations and event-driven workflows.
+**Three progressive projects**: From simple REST APIs to advanced AI multi-agent systems.
 
-## 📚 Tutorials
+## 🎯 Quick Start
 
-### 1. [Task Management REST API](#task-management-rest-api) 
-Learn how to build REST API endpoints with full CRUD operations using Motia.
+Choose your learning path based on your experience level:
 
-### 2. [Event-Driven User Registration Workflow](#event-driven-user-registration-workflow)
-Learn how to build event-driven workflows with asynchronous event processing.
+| Project | Difficulty | Time | Description |
+|---------|------------|------|-------------|
+| **[1. Task Management API](#1-task-management-rest-api)** | 🟢 Beginner | 20 min | Learn REST APIs, CRUD operations, and file storage |
+| **[2. User Registration Workflow](#2-event-driven-user-registration)** | 🟡 Intermediate | 30 min | Master event-driven architecture and async processing |
+| **[3. AI Research Agent](#3-ai-research-agent-system)** | 🔴 Advanced | 45 min | Build multi-agent AI systems with Google Gemini |
+
+## 📖 Complete Tutorial Guide
+
+**👉 See [TUTORIAL.md](./TUTORIAL.md) for the complete step-by-step guide with:**
+- Architecture comparisons and flow diagrams
+- Complete code implementations  
+- API documentation with cURL examples
+- Testing workflows
+- Troubleshooting tips
+
+## 🏗️ Repository Structure
+
+```
+Motia/
+├── my-app/                      # Project 1: Task Management REST API
+│   ├── src/tasks/
+│   │   ├── task-store.ts       # File-based data store
+│   │   ├── create-task.step.ts # POST /tasks
+│   │   ├── get-tasks.step.ts   # GET /tasks
+│   │   ├── get-task-by-id.step.ts
+│   │   ├── update-task.step.ts
+│   │   └── delete-task.step.ts
+│   └── .data/tasks.json         # Task storage
+│
+├── event-driven-workflow/       # Project 2: User Registration
+│   └── src/users/
+│       ├── register-user.step.ts
+│       ├── send-welcome-email.step.ts
+│       ├── setup-account.step.ts
+│       ├── log-notification.step.ts
+│       └── get-user-status.step.ts
+│
+├── ai/                          # Project 3: AI Research Agent
+│   ├── src/research/
+│   │   ├── research-api.step.ts
+│   │   ├── planning-agent.step.ts
+│   │   ├── research-agent.step.ts
+│   │   ├── analysis-agent.step.ts
+│   │   ├── synthesis-agent.step.ts
+│   │   ├── report-logger.step.ts
+│   │   └── status-api.step.ts
+│   └── src/utils/
+│       └── retry-helper.ts
+│
+├── TUTORIAL.md                  # 📚 Complete tutorial guide
+├── README.md                    # This file
+└── PRESENTATION.md              # Presentation guide
+```
+
+## 🚀 Quick Setup
+
+### Project 1: Task Management API
+
+```bash
+cd my-app
+npm install
+npm run dev
+
+# Test the API
+curl http://localhost:3000/tasks
+```
+
+**Key APIs:**
+- `POST /tasks` - Create task
+- `GET /tasks` - List tasks  
+- `GET /tasks/:id` - Get task
+- `PUT /tasks/:id` - Update task
+- `DELETE /tasks/:id` - Delete task
+
+### Project 2: User Registration
+
+```bash
+cd event-driven-workflow
+npm install
+npm run dev
+
+# Register a user
+curl -X POST http://localhost:3000/users/register \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Alice","email":"alice@example.com","password":"pass123"}'
+```
+
+**Key APIs:**
+- `POST /users/register` - Register user (triggers events)
+- `GET /users/:id/status` - Check registration status
+
+### Project 3: AI Research Agent
+
+```bash
+cd ai
+npm install @google/generative-ai
+
+# Add your API key
+echo "GOOGLE_API_KEY=your_key_here" >> .env
+
+npm run dev
+
+# Start research
+curl -X POST http://localhost:3000/research \
+  -H "Content-Type: application/json" \
+  -d '{"query":"What is clean code?","depth":"quick"}'
+```
+
+**Key APIs:**
+- `POST /research` - Start AI research
+- `GET /research/:id/status` - Check progress & get report
+
+## 📊 Architecture Comparison
+
+### Execution Patterns
+
+```
+PROJECT 1: Synchronous REST
+Client → API Handler → File DB → Response
+
+PROJECT 2: Parallel Event Processing  
+Client → API → Emit Event → [Handler 1, Handler 2, Handler 3]
+
+PROJECT 3: Sequential AI Pipeline
+Client → API → Agent 1 → Agent 2 → Agent 3 → Agent 4 → Complete
+```
+
+### Feature Matrix
+
+| Feature | Project 1 | Project 2 | Project 3 |
+|---------|-----------|-----------|-----------|
+| **Pattern** | REST CRUD | Event-Driven | Multi-Agent |
+| **Execution** | Sync | Async (Parallel) | Async (Sequential) |
+| **Storage** | File JSON | Redis | Redis |
+| **Endpoints** | 5 | 2 | 2 |
+| **Event Handlers** | 0 | 3 | 5 |
+| **External APIs** | None | None | Gemini AI |
+| **Response Time** | < 10ms | < 10ms + async | < 10ms + 30-60s |
+
+## 1. Task Management REST API
+
+**Duration:** 20 minutes | **Difficulty:** 🟢 Beginner
+
+Build a complete CRUD API with file-based storage.
+
+### What You'll Learn
+- REST API design patterns
+- Request validation with Zod
+- File-based persistence
+- HTTP status codes
+- Error handling
+
+### API Endpoints
+
+```bash
+# Create task
+curl -X POST http://localhost:3000/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"title":"My Task","description":"Description","status":"pending"}'
+
+# List all tasks
+curl http://localhost:3000/tasks
+
+# Get specific task
+curl http://localhost:3000/tasks/1
+
+# Update task
+curl -X PUT http://localhost:3000/tasks/1 \
+  -H "Content-Type: application/json" \
+  -d '{"status":"completed"}'
+
+# Delete task
+curl -X DELETE http://localhost:3000/tasks/1
+```
+
+**See [TUTORIAL.md](./TUTORIAL.md#1-task-management-rest-api) for complete implementation.**
+
+## 2. Event-Driven User Registration
+
+**Duration:** 30 minutes | **Difficulty:** 🟡 Intermediate
+
+Build an event-driven system with parallel async processing.
+
+### What You'll Learn
+- Event emission and subscription
+- Asynchronous workflows
+- Parallel event handlers (fan-out pattern)
+- Event chaining
+- State management with Redis
+
+### Event Flow
+
+```
+POST /users/register
+    ↓ (emits: user.registered)
+    ├─→ Send Welcome Email → (emits: email.sent) → Log Notification
+    └─→ Setup User Account
+```
+
+### API Endpoints
+
+```bash
+# Register user (triggers 3 parallel workflows)
+curl -X POST http://localhost:3000/users/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Alice Johnson",
+    "email": "alice@example.com",
+    "password": "securepass123"
+  }'
+
+# Check status (wait 2-3 seconds after registration)
+curl http://localhost:3000/users/user-1706435232000/status
+```
+
+**See [TUTORIAL.md](./TUTORIAL.md#2-event-driven-user-registration) for complete implementation.**
+
+## 3. AI Research Agent System
+
+**Duration:** 45 minutes | **Difficulty:** 🔴 Advanced
+
+Build a multi-agent AI system using Google Gemini API.
+
+### What You'll Learn
+- Sequential agent pipelines
+- External API integration (Google Gemini)
+- Retry logic with exponential backoff
+- Rate limit handling
+- Complex state orchestration
+- Error recovery strategies
+
+### Agent Pipeline
+
+```
+Client Request
+    ↓
+Planning Agent → Research Agent → Analysis Agent → Synthesis Agent
+    ↓                ↓                  ↓                ↓
+Create Plan    Research 5 Topics    Analyze Results   Generate Report
+```
+
+### API Endpoints
+
+```bash
+# Start research (returns immediately, processing takes 30-60s)
+curl -X POST http://localhost:3000/research \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "What are the benefits of microservices architecture?",
+    "depth": "standard"
+  }'
+
+# Check progress and get report
+curl http://localhost:3000/research/research-1706435232000/status
+```
+
+### Setup Requirements
+
+```bash
+# Get API key from https://aistudio.google.com/app/apikey
+echo "GOOGLE_API_KEY=your_key_here" >> ai/.env
+
+# Install Gemini SDK
+cd ai && npm install @google/generative-ai
+```
+
+**See [TUTORIAL.md](./TUTORIAL.md#3-ai-research-agent-system) for complete implementation.**
 
 ---
 
-# Task Management REST API
+## 🎓 Key Concepts by Project
 
-A complete step-by-step guide to building REST API endpoints with CRUD (Create, Read, Update, Delete) operations using the Motia framework.
+### Project 1: REST Fundamentals
+✓ HTTP methods (GET, POST, PUT, DELETE)  
+✓ Request/response validation with Zod  
+✓ File-based data persistence  
+✓ Error handling and status codes  
+✓ Path parameters and bodies  
+
+### Project 2: Event-Driven Architecture
+✓ Event emission (`emit`)  
+✓ Event subscription (`subscribes`)  
+✓ Parallel processing (fan-out)  
+✓ Event chaining (sequential events)  
+✓ Async workflows  
+✓ Redis state management  
+
+### Project 3: Multi-Agent Systems
+✓ Sequential pipelines  
+✓ External API integration  
+✓ Retry mechanisms  
+✓ Rate limit handling  
+✓ Complex orchestration  
+✓ Error recovery  
+
+---
+
+## 📚 Additional Resources
+
+- **[TUTORIAL.md](./TUTORIAL.md)** - Complete step-by-step guide with code and examples
+- **[PRESENTATION.md](./PRESENTATION.md)** - 45-60 minute presentation guide
+- [Motia Documentation](https://motia.dev/docs)
+- [Google Gemini API](https://ai.google.dev/gemini-api/docs)
+- [Zod Validation](https://zod.dev)
+
+---
+
+## 🤝 Contributing
+
+Feel free to open issues or submit pull requests to improve these tutorials!
+
+---
+
+## 📄 License
+
+MIT License - feel free to use these tutorials for learning and teaching.
+
+---
+
+**Happy Building with Motia! 🎉**
+
+---
+
+# Project 1: Task Management REST API
+
+**Duration:** 20 minutes | **Difficulty:** Beginner | **Pattern:** REST CRUD
+
+## Overview
+
+A complete REST API with full CRUD operations for managing tasks. This project teaches the fundamentals of building HTTP APIs with Motia, including request validation, error handling, and data persistence.
+
+### What You'll Learn
+
+- ✅ Create REST API endpoints (GET, POST, PUT, DELETE)
+- ✅ Use Zod for request/response validation
+- ✅ Implement file-based data persistence
+- ✅ Handle path parameters and request bodies
+- ✅ Return proper HTTP status codes
+- ✅ Test APIs with cURL and Workbench
+
+### Architecture
+
+```
+┌─────────────┐
+│   Client    │
+└──────┬──────┘
+       │ HTTP Request
+       ↓
+┌─────────────────────────────────────┐
+│     Motia API Endpoints             │
+│                                     │
+│  POST /tasks    → Create Task       │
+│  GET /tasks     → List All Tasks    │
+│  GET /tasks/:id → Get Task by ID    │
+│  PUT /tasks/:id → Update Task       │
+│  DELETE /tasks/:id → Delete Task    │
+└──────────┬──────────────────────────┘
+           │
+           ↓
+    ┌──────────────┐
+    │  Task Store  │
+    │  (File JSON) │
+    └──────────────┘
+```
+
+### Tech Stack
+
+- **Framework:** Motia v0.17.14-beta.196
+- **Language:** TypeScript
+- **Validation:** Zod v4.3.6
+- **Storage:** File-based JSON (.data/tasks.json)
+- **Runtime:** Node.js v24+
+
+---
 
 ## Table of Contents
 
@@ -70,7 +435,16 @@ After creating the project, your structure will look like this:
 ```
 my-app/
 ├── src/
-│   └── hello/              # Example hello world API
+│   ├── hello/              # Example hello world API (delete this)
+│   └── tasks/              # Task Management API (we'll create this)
+│       ├── task-store.ts         # File-based data store
+│       ├── create-task.step.ts   # POST /tasks
+│       ├── get-tasks.step.ts     # GET /tasks
+│       ├── get-task-by-id.step.ts # GET /tasks/:id
+│       ├── update-task.step.ts   # PUT /tasks/:id
+│       └── delete-task.step.ts   # DELETE /tasks/:id
+├── .data/
+│   └── tasks.json          # Task data storage (auto-created)
 ├── motia.config.ts         # Motia configuration
 ├── package.json
 ├── tsconfig.json
@@ -89,86 +463,116 @@ mkdir -p src/tasks
 
 ### Step 2: Create the Data Store
 
-Create `src/tasks/task-store.ts` - an in-memory store for managing tasks:
+Create `src/tasks/task-store.ts` - a file-based store for managing tasks:
 
 ```typescript
 // src/tasks/task-store.ts
-// Simple in-memory store for tasks
-interface Task {
+// Simple file-based store for tasks
+import fs from 'node:fs'
+import path from 'node:path'
+
+export type Task = {
   id: string
   title: string
   description: string
   status: 'pending' | 'in-progress' | 'completed'
-  createdAt: string
-  updatedAt: string
+  createdAt: number
+  updatedAt: number
 }
 
-class TaskStore {
-  private tasks: Map<string, Task> = new Map()
+const DATA_DIR = path.join(process.cwd(), '.data')
+const FILE = path.join(DATA_DIR, 'tasks.json')
 
-  constructor() {
-    // Initialize with some sample tasks
-    const sampleTasks: Task[] = [
-      {
-        id: '1',
-        title: 'Learn Motia Framework',
-        description: 'Get familiar with Motia API endpoints',
-        status: 'in-progress',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      {
-        id: '2',
-        title: 'Build REST API',
-        description: 'Create CRUD endpoints for tasks',
-        status: 'pending',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-    ]
+type DbShape = { seq: number; tasks: Record<string, Task> }
 
-    sampleTasks.forEach((task) => this.tasks.set(task.id, task))
+function ensureFile(): void {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true })
+  if (!fs.existsSync(FILE)) {
+    const init: DbShape = { seq: 1, tasks: {} }
+    fs.writeFileSync(FILE, JSON.stringify(init))
   }
+}
+
+function load(): DbShape {
+  ensureFile()
+  return JSON.parse(fs.readFileSync(FILE, 'utf8')) as DbShape
+}
+
+function save(db: DbShape): void {
+  fs.writeFileSync(FILE, JSON.stringify(db, null, 2))
+}
+
+const now = () => Date.now()
+
+export const taskStore = {
+  create(input: {
+    title: string
+    description: string
+    status?: Task['status']
+  }): Task {
+    const db = load()
+    const id = String(db.seq++)
+    const task: Task = {
+      id,
+      title: input.title.trim(),
+      description: input.description.trim(),
+      status: input.status ?? 'pending',
+      createdAt: now(),
+      updatedAt: now(),
+    }
+    db.tasks[id] = task
+    save(db)
+    return task
+  },
 
   list(): Task[] {
-    return Array.from(this.tasks.values())
-  }
+    const db = load()
+    return Object.values(db.tasks).sort((a, b) => b.updatedAt - a.updatedAt)
+  },
 
-  get(id: string): Task | undefined {
-    return this.tasks.get(id)
-  }
+  get(id: string): Task | null {
+    const db = load()
+    return db.tasks[id] ?? null
+  },
 
-  create(task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>): Task {
-    const newTask: Task = {
-      id: Date.now().toString(),
-      ...task,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+  update(
+    id: string,
+    patch: Partial<Omit<Task, 'id' | 'createdAt'>>
+  ): Task | null {
+    const db = load()
+    const cur = db.tasks[id]
+    if (!cur) return null
+    const next: Task = {
+      ...cur,
+      ...patch,
+      title: typeof patch.title === 'string' ? patch.title.trim() : cur.title,
+      description:
+        typeof patch.description === 'string'
+          ? patch.description.trim()
+          : cur.description,
+      updatedAt: now(),
     }
-    this.tasks.set(newTask.id, newTask)
-    return newTask
-  }
-
-  update(id: string, updates: Partial<Omit<Task, 'id' | 'createdAt'>>): Task | null {
-    const task = this.tasks.get(id)
-    if (!task) return null
-
-    const updatedTask: Task = {
-      ...task,
-      ...updates,
-      updatedAt: new Date().toISOString(),
-    }
-    this.tasks.set(id, updatedTask)
-    return updatedTask
-  }
+    db.tasks[id] = next
+    save(db)
+    return next
+  },
 
   remove(id: string): boolean {
-    return this.tasks.delete(id)
-  }
+    const db = load()
+    if (!db.tasks[id]) return false
+    delete db.tasks[id]
+    save(db)
+    return true
+  },
 }
-
-export const taskStore = new TaskStore()
 ```
+
+**Key Features:**
+- ✅ File-based storage in `.data/tasks.json`
+- ✅ Auto-incrementing IDs
+- ✅ CRUD operations (Create, Read, Update, Delete, List)
+- ✅ Timestamps (createdAt, updatedAt)
+- ✅ Sorted by most recently updated
 
 ### Step 3: Create POST /tasks Endpoint (Create Task)
 
