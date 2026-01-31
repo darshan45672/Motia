@@ -88,15 +88,23 @@ Respond ONLY with valid JSON, no markdown formatting.`
       error: error.message 
     })
 
+    const isQuotaError = error.message?.includes('Daily API quota exceeded') ||
+                         error.message?.includes('RequestsPerDay')
+    
+    const userMessage = isQuotaError
+      ? 'Daily API quota exceeded. Please try again after midnight Pacific Time.'
+      : error.message
+
     // Update state with error
     const researchData = await state.get('research', researchId) as any
     await state.set('research', researchId, {
       ...researchData,
+      status: 'failed',
       progress: {
         ...researchData.progress,
         planning: 'failed',
       },
-      error: error.message,
+      error: userMessage,
     })
   }
 }

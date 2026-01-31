@@ -247,6 +247,58 @@ emits: ['report.completed']
 
 ## 🧠 Key Concepts
 
+### API Quota Management
+
+**Free Tier Limits (Google Gemini):**
+- **20 requests per day** for gemini-2.5-flash
+- Quota resets at **midnight Pacific Time**
+- Per-minute limits: 5 requests per minute
+
+**API Call Breakdown (Standard Depth):**
+```
+POST /research → triggers:
+  1 call:  Planning Agent (create plan)
+  5 calls: Research Agent (5 topics)
+  1 call:  Analysis Agent (analyze findings)
+  1 call:  Synthesis Agent (generate report)
+  ─────────
+  8 total API calls per research request
+```
+
+**Staying Within Limits:**
+
+1. **Use "quick" depth** (3 topics instead of 5):
+   ```bash
+   curl -X POST http://localhost:3000/research \
+     -d '{"query": "...", "depth": "quick"}'  # Only 5 API calls total
+   ```
+
+2. **Monitor your usage**:
+   - Check quota: https://ai.dev/rate-limit
+   - Track API calls in logs
+
+3. **Handle quota errors gracefully**:
+   - System automatically detects daily quota exceeded
+   - Provides user-friendly error messages
+   - No wasted retry attempts on daily limits
+
+**Error Message:**
+```json
+{
+  "error": "Daily API quota exceeded (20 requests/day on free tier). 
+           Please try again after midnight Pacific Time or reduce research depth to 'quick'.",
+  "errorDetails": {
+    "suggestion": "Quota resets at midnight Pacific Time. 
+                  Consider using depth: 'quick' (3 topics instead of 5) to stay within limits."
+  }
+}
+```
+
+**Upgrade Options:**
+- **Paid Tier**: 1500 requests per day (gemini-2.5-flash)
+- **Rate limits**: Higher per-minute limits
+- **Visit**: https://ai.google.dev/pricing
+
 ### Sequential AI Agent Pattern
 
 Each agent is **specialized** and **independent**:

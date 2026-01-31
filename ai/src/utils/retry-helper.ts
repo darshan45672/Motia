@@ -30,16 +30,30 @@ export async function retryWithBackoff<T>(
     } catch (error: any) {
       lastError = error
 
-      // Check if error is retryable (rate limit or server error)
+      // Check error type
       const isRateLimitError = error.message?.includes('429') || 
                                error.message?.includes('quota') ||
                                error.message?.includes('rate limit')
       const isServerError = error.message?.includes('500') || 
                            error.message?.includes('503')
+      
+      // Check if it's a daily quota limit (not just per-minute)
+      const isDailyQuotaExceeded = error.message?.includes('RequestsPerDayPerProjectPerModel') ||
+                                   error.message?.includes('RequestsPerDay')
 
       if (!isRateLimitError && !isServerError) {
         // Non-retryable error, throw immediately
         throw error
+      }
+
+      // If daily quota exceeded, don't retry - it won't help
+      if (isDailyQuotaExceeded) {
+        throw new Error(
+          `Daily API quota exceeded. The free tier Gemini API has a limit of 20 requests per day. ` +
+          `Quota resets at midnight Pacific Time. ` +
+          `Consider: 1) Wait until quota resets, 2) Reduce research depth, or 3) Upgrade to paid tier. ` +
+          `Original error: ${error.message}`
+        )
       }
 
       if (attempt === maxRetries) {

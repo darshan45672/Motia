@@ -117,6 +117,14 @@ Respond ONLY with valid JSON, no markdown formatting.`
       error: error.message 
     })
 
+    // Provide user-friendly error message
+    const isQuotaError = error.message?.includes('Daily API quota exceeded') ||
+                         error.message?.includes('RequestsPerDay')
+    
+    const userMessage = isQuotaError
+      ? 'Daily API quota exceeded (20 requests/day on free tier). Please try again after midnight Pacific Time or reduce research depth to "quick".'
+      : error.message
+
     const researchData = await state.get('research', researchId) as any
     await state.set('research', researchId, {
       ...researchData,
@@ -125,7 +133,14 @@ Respond ONLY with valid JSON, no markdown formatting.`
         ...researchData.progress,
         synthesis: 'failed',
       },
-      error: error.message,
+      error: userMessage,
+      errorDetails: {
+        message: error.message,
+        timestamp: new Date().toISOString(),
+        suggestion: isQuotaError
+          ? 'Quota resets at midnight Pacific Time. Consider using depth: "quick" (3 topics instead of 5) to stay within limits.'
+          : 'Please check the logs for more details.'
+      }
     })
   }
 }
